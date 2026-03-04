@@ -14,10 +14,14 @@ load_dotenv()
 
 class Geocoder:
     def __init__(self):
-        self.user_agent = os.getenv("NOMINATIM_USER_AGENT", "greenroute_app_v1")
-        self.geolocator = Nominatim(user_agent=self.user_agent, timeout=10)
+        # Use a more specific user agent to avoid shared-IP blocks
+        self.user_agent = os.getenv("NOMINATIM_USER_AGENT", f"greenroute_explorer_{int(time.time())}")
+        self.geolocator = Nominatim(user_agent=self.user_agent, timeout=15)
         self.google_api_key = os.getenv("GOOGLE_MAPS_API_KEY")
         self.gmaps = None
+        
+        # In-memory cache for the life of the process
+        self._cache = {}
         
         if self.google_api_key:
             try:
@@ -37,11 +41,11 @@ class Geocoder:
         # 1. Remove everything inside parentheses
         address = re.sub(r'\(.*?\)', '', address)
         
-        # 2. Remove Floor/Room/Unit/Flat patterns (e.g. "Floor 5", "Flat 2b", "Room 101")
-        # Matches keywords followed by numbers/letters until a comma or end of string
+        # 2. Remove Floor/Room/Unit/Flat patterns
         patterns = [
             r'\b(floor|level|room|unit|apt|apartment|flat|suite|block|gate|cabin|cabin no|plot|plot no)\b[\s#]*[a-z0-9-]+',
-            r'\b(ground|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+floor\b'
+            r'\b(ground|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+floor\b',
+            r'\b(ward|mandal|corporation|zone)\b[\s]*[a-z0-9-]+', # Strip specific local noise if too long
         ]
         
         for pattern in patterns:
@@ -56,59 +60,72 @@ class Geocoder:
     def geocode_address(self, address: str) -> Optional[Tuple[float, float]]:
         """
         Convert address to (latitude, longitude) coordinates
-        
-        Tries Google Maps first (if configured), then falls back to 
-        Nominatim with iterative "peeling" for complex addresses.
         """
         if not address or not address.strip():
             return None
         
-        # Normalize: Join multi-lines, strip extra spaces
+        # Normalize and clean
         clean_address = " ".join(address.split()).strip()
-        
-        # NEW: Smart Cleaning for non-geographic noise
         smart_cleaned = self._clean_address_noise(clean_address)
-        if smart_cleaned != clean_address:
-            print(f"   [CLEANED] '{clean_address}' -> '{smart_cleaned}'")
+        
+        # CHECK CACHE FIRST
+        if smart_cleaned in self._cache:
+            # print(f"   [CACHE HIT] {smart_cleaned}")
+            return self._cache[smart_cleaned]
         
         # 1. Try Google Maps if available
         if self.gmaps:
             try:
-                # Add slight delay for safety
+                # Slight sleep for safety, but check cache first
                 time.sleep(0.1)
                 result = self.gmaps.geocode(smart_cleaned)
                 if result:
                     location = result[0]['geometry']['location']
-                    return (location['lat'], location['lng'])
+                    coords = (location['lat'], location['lng'])
+                    self._cache[smart_cleaned] = coords
+                    return coords
             except Exception as e:
                 print(f"Google Maps geocoding error: {e}")
         
         # 2. Try Nominatim with Iterative Peeling
-        return self._geocode_nominatim_robust(smart_cleaned)
+        coords = self._geocode_nominatim_robust(smart_cleaned)
+        if coords:
+            self._cache[smart_cleaned] = coords
+            
+        return coords
 
     def _geocode_nominatim_robust(self, address: str) -> Optional[Tuple[float, float]]:
         """
-        Robust Nominatim geocoding using iterative peeling of address parts.
-        Useful for detailed addresses with landmarks.
+        Robust Nominatim geocoding using iterative peeling.
         """
         parts = [p.strip() for p in address.split(',')]
         
         # Strategy: Try full address, then progressively remove the leftmost part
-        # e.g. "Cyber Towers, HITEC City, Hyderabad" -> "HITEC City, Hyderabad" -> "Hyderabad"
-        for i in range(len(parts)):
+        # Limit peeling depth to prevent excessive API hits
+        max_peeling = min(len(parts) - 1, 4) 
+        
+        for i in range(max_peeling + 1):
             current_search = ", ".join(parts[i:]).strip()
-            if not current_search:
+            
+            # Skip if current search is just noise like "India" or a single pincode
+            if len(current_search.split()) < 2 and i > 0:
                 continue
+            
+            # Check cache for the "peeled" version too!
+            if current_search in self._cache:
+                return self._cache[current_search]
                 
             try:
-                # Respect Nominatim usage policy
+                # Strict 1s sleep ONLY if we are hitting Nominatim
                 time.sleep(1)
                 location = self.geolocator.geocode(current_search)
                 
                 if location:
+                    coords = (location.latitude, location.longitude)
+                    self._cache[current_search] = coords
                     if i > 0:
                         print(f"   [NOTICE] Resolved via fallback: '{current_search}'")
-                    return (location.latitude, location.longitude)
+                    return coords
                 
             except (GeocoderTimedOut, GeocoderServiceError) as e:
                 print(f"Warning: Geocoder service error for '{current_search}': {e}")

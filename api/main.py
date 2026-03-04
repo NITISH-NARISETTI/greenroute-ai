@@ -117,6 +117,8 @@ async def optimize_route(request: OptimizeRequest):
             )
         
         # Step 1: Geocode addresses
+        import time
+        t0 = time.time()
         geocoder = get_geocoder()
         
         all_addresses = [request.start_address] + request.destination_addresses
@@ -131,7 +133,8 @@ async def optimize_route(request: OptimizeRequest):
                 detail=f"Failed to geocode addresses: {failed_addresses}"
             )
         
-        print(f"   [OK] Successfully geocoded {len(coordinates)} addresses")
+        t1 = time.time()
+        print(f"   [TIME] Geocoding took: {t1 - t0:.2f}s")
         
         # Step 2: Build CO2 cost matrix
         co2_matrix = build_co2_matrix(
@@ -140,12 +143,16 @@ async def optimize_route(request: OptimizeRequest):
             cargo_weight=request.cargo_weight,
             avg_speed=request.avg_speed
         )
+        t2 = time.time()
+        print(f"   [TIME] Matrix Build took: {t2 - t1:.2f}s")
         
         # Step 3: Optimize route using RL
         optimized_order, total_co2 = optimize_delivery_route(
             co2_matrix=co2_matrix,
             start_index=0
         )
+        t3 = time.time()
+        print(f"   [TIME] RL Optimization took: {t3 - t2:.2f}s")
         
         # Step 4: Calculate comprehensive metrics
         metrics = calculate_route_metrics(
@@ -168,13 +175,13 @@ async def optimize_route(request: OptimizeRequest):
         
         response = OptimizeResponse(
             success=True,
-            message="Route optimized successfully",
+            message=f"Route optimized in {time.time() - t0:.1f}s",
             route=route_info,
             metrics=metrics,
-            co2_matrix=co2_matrix.tolist()  # Include for debugging
+            co2_matrix=co2_matrix.tolist()
         )
         
-        print("\n[SUCCESS] Optimization complete!\n")
+        print(f"\n[SUCCESS] Total processing time: {time.time() - t0:.2f}s\n")
         
         return response
         
