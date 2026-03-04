@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GreenRoute - CO₂ Optimized Delivery Routing</title>
+    <meta name="description"
+        content="AI-powered delivery route optimization system that minimizes CO₂ emissions using machine learning and reinforcement learning">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                    <h1>GreenRoute</h1>
+                </div>
+                <p class="tagline">CO₂-Optimized Delivery Routing</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            <div class="grid">
+                <!-- Left Panel - Input Form -->
+                <div class="panel input-panel">
+                    <div class="panel-header">
+                        <h2>Route Configuration</h2>
+                        <p class="panel-subtitle">Configure your delivery route parameters</p>
+                    </div>
+
+                    <form id="routeForm" class="route-form">
+                        <!-- Start Address -->
+                        <div class="form-group">
+                            <label for="startAddress">
+                                <span class="label-icon">📍</span>
+                                Starting Address
+                            </label>
+                            <div class="autocomplete-container">
+                                <input type="text" id="startAddress" name="startAddress"
+                                    placeholder="e.g., 1600 Amphitheatre Parkway, Mountain View, CA" required
+                                    autocomplete="off">
+                            </div>
+                        </div>
+
+                        <!-- Destination Addresses -->
+                        <div class="form-group">
+                            <label>
+                                <span class="label-icon">🎯</span>
+                                Delivery Stops
+                            </label>
+                            <div id="destinationsContainer">
+                                <div class="destination-input-group">
+                                    <div class="autocomplete-container">
+                                        <input type="text" class="destination-input" placeholder="Delivery stop 1"
+                                            required autocomplete="off">
+                                    </div>
+                                    <button type="button" class="btn-remove" onclick="removeDestination(this)"
+                                        title="Remove stop">×</button>
+                                </div>
+                            </div>
+                            <button type="button" id="addDestination" class="btn-secondary">
+                                + Add Stop
+                            </button>
+                        </div>
+
+                        <!-- Vehicle Type -->
+                        <div class="form-group">
+                            <label for="vehicleType">
+                                <span class="label-icon">🚚</span>
+                                Vehicle Type
+                            </label>
+                            <select id="vehicleType" name="vehicleType" required>
+                                <option value="bike">Bike</option>
+                                <option value="car">Car</option>
+                                <option value="van" selected>Van</option>
+                                <option value="truck">Truck</option>
+                            </select>
+                        </div>
+
+                        <!-- Cargo Weight -->
+                        <div class="form-group">
+                            <label for="cargoWeight">
+                                <span class="label-icon">⚖️</span>
+                                Cargo Weight (kg)
+                            </label>
+                            <input type="number" id="cargoWeight" name="cargoWeight" value="500" min="0" max="10000"
+                                step="10" required>
+                        </div>
+
+                        <!-- Average Speed -->
+                        <div class="form-group">
+                            <label for="avgSpeed">
+                                <span class="label-icon">⚡</span>
+                                Average Speed (km/h)
+                            </label>
+                            <input type="number" id="avgSpeed" name="avgSpeed" value="50" min="1" max="120" step="1"
+                                required>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <button type="submit" id="optimizeBtn" class="btn-primary">
+                            <span class="btn-text">Optimize Route</span>
+                            <span class="btn-loader" style="display: none;">
+                                <span class="spinner"></span>
+                                Optimizing...
+                            </span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Right Panel - Map & Results -->
+                <div class="panel map-panel">
+                    <!-- Map Container -->
+                    <div id="map" class="map-container"></div>
+
+                    <!-- Results Panel -->
+                    <div id="resultsPanel" class="results-panel" style="display: none;">
+                        <h3 class="results-title">Optimization Results</h3>
+
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-icon">🌍</div>
+                                <div class="metric-content">
+                                    <div class="metric-label">Total Distance</div>
+                                    <div class="metric-value" id="metricDistance">--</div>
+                                </div>
+                            </div>
+
+                            <div class="metric-card highlight">
+                                <div class="metric-icon">🌱</div>
+                                <div class="metric-content">
+                                    <div class="metric-label">CO₂ Emissions</div>
+                                    <div class="metric-value" id="metricCO2">--</div>
+                                </div>
+                            </div>
+
+                            <div class="metric-card">
+                                <div class="metric-icon">⏱️</div>
+                                <div class="metric-content">
+                                    <div class="metric-label">Travel Time</div>
+                                    <div class="metric-value" id="metricTime">--</div>
+                                </div>
+                            </div>
+
+                            <div class="metric-card">
+                                <div class="metric-icon">💰</div>
+                                <div class="metric-content">
+                                    <div class="metric-label">Est. Cost</div>
+                                    <div class="metric-value" id="metricCost">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Savings Section -->
+                        <div class="savings-section">
+                            <h4>💡 Optimization Savings</h4>
+                            <p class="savings-subtitle">Compared to non-optimized sequential route</p>
+
+                            <div class="savings-grid">
+                                <div class="saving-item">
+                                    <div class="saving-label">Distance Saved</div>
+                                    <div class="saving-value" id="savingDistance">--</div>
+                                </div>
+
+                                <div class="saving-item highlight-saving">
+                                    <div class="saving-label">CO₂ Reduced</div>
+                                    <div class="saving-value" id="savingCO2">--</div>
+                                </div>
+
+                                <div class="saving-item">
+                                    <div class="saving-label">Time Saved</div>
+                                    <div class="saving-value" id="savingTime">--</div>
+                                </div>
+
+                                <div class="saving-item highlight-saving">
+                                    <div class="saving-label">Cost Saved</div>
+                                    <div class="saving-value" id="savingCost">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Route Sequence -->
+                        <div class="route-sequence">
+                            <h4>Optimized Route Sequence</h4>
+                            <div id="routeSequence" class="sequence-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- Error Panel -->
+                    <div id="errorPanel" class="error-panel" style="display: none;">
+                        <div class="error-icon">⚠️</div>
+                        <div class="error-content">
+                            <h4>Optimization Failed</h4>
+                            <p id="errorMessage"></p>
+                        </div>
+                        <button onclick="closeError()" class="btn-close-error">×</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>GreenRoute © 2026 | AI-Powered Route Optimization | Built with ML & RL</p>
+        </div>
+    </footer>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Custom JS -->
+    <script src="main.js"></script>
+</body>
+
+</html>
