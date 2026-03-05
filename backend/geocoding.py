@@ -6,7 +6,7 @@ import os
 import time
 import re
 from typing import Tuple, Optional, List
-from geopy.geocoders import Nominatim
+from geopy.geocoders import Nominatim, Photon, MapBox
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from dotenv import load_dotenv
 
@@ -29,7 +29,6 @@ class Geocoder:
                 print(f"Error initializing Google Maps: {e}")
 
         # 2. Mapbox (Secondary Pro - New)
-        from geopy.geocoders import Nominatim, Photon, MapBox
         self.mapbox_api_key = os.getenv("MAPBOX_API_KEY")
         self.mapbox = None
         if self.mapbox_api_key:
