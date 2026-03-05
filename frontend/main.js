@@ -92,7 +92,8 @@ async function handleFormSubmit(event) {
         console.log('📤 Sending optimization request...', formData);
 
         // Call API
-        const url = `${API_BASE_URL}/optimize`;
+        // Use relative URL for mono-service deployment
+        const url = '/optimize';
         console.log(`🚀 Sending request to: ${url}`, formData);
 
         const response = await fetch(url, {
@@ -103,13 +104,21 @@ async function handleFormSubmit(event) {
             body: JSON.stringify(formData)
         });
 
+        const responseText = await response.text();
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (e) {
+            console.error('Failed to parse response as JSON:', responseText);
+            throw new Error(`Server returned non-JSON response: ${responseText.substring(0, 100)}...`);
+        }
+
         if (!response.ok) {
-            const errorData = await response.json();
             let errorMsg = 'Optimization failed';
+            const errorData = result;
 
             if (errorData.detail) {
                 if (Array.isArray(errorData.detail)) {
-                    // Handle FastAPI validation errors (e.g., [{"loc": ["body", "vehicle_type"], "msg": "field required"}])
                     errorMsg = errorData.detail.map(err => {
                         const field = err.loc ? err.loc[err.loc.length - 1] : 'Field';
                         return `${field}: ${err.msg}`;
@@ -126,7 +135,6 @@ async function handleFormSubmit(event) {
             throw new Error(errorMsg);
         }
 
-        const result = await response.json();
         console.log('✅ Optimization successful:', result);
 
         // Store original addresses for sequential route comparison
