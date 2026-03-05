@@ -14,32 +14,38 @@ load_dotenv()
 
 class Geocoder:
     def __init__(self):
-        # Use a more specific user agent to avoid shared-IP blocks
+        # Specific user agent to avoid blocks
         self.user_agent = os.getenv("NOMINATIM_USER_AGENT", f"greenroute_explorer_{int(time.time())}")
-        self.geolocator = Nominatim(user_agent=self.user_agent, timeout=20)
         
-        # ADD FALLBACK: Photon (OSM based, different rate limits)
-        from geopy.geocoders import Photon
-        self.photon = Photon(user_agent=self.user_agent, timeout=20)
-        
+        # 1. Google Maps (Primary Pro)
         self.google_api_key = os.getenv("GOOGLE_MAPS_API_KEY")
         self.gmaps = None
-        
-        # In-memory cache for the life of the process
-        self._cache = {}
-        
-        # Tracker for service health (to avoid hammering blocked services)
-        self.nominatim_blocked_until = 0
-        
         if self.google_api_key:
             try:
                 import googlemaps
                 self.gmaps = googlemaps.Client(key=self.google_api_key)
                 print("[OK] Google Maps Geocoding enabled.")
-            except ImportError:
-                print("Warning: 'googlemaps' library not found. Please install it.")
             except Exception as e:
                 print(f"Error initializing Google Maps: {e}")
+
+        # 2. Mapbox (Secondary Pro - New)
+        from geopy.geocoders import Nominatim, Photon, MapBox
+        self.mapbox_api_key = os.getenv("MAPBOX_API_KEY")
+        self.mapbox = None
+        if self.mapbox_api_key:
+            try:
+                self.mapbox = MapBox(api_key=self.mapbox_api_key, user_agent=self.user_agent, timeout=20)
+                print("[OK] Mapbox Geocoding enabled.")
+            except Exception as e:
+                print(f"Error initializing Mapbox: {e}")
+
+        # 3. Free Fallbacks
+        self.geolocator = Nominatim(user_agent=self.user_agent, timeout=20)
+        self.photon = Photon(user_agent=self.user_agent, timeout=20)
+        
+        # In-memory cache
+        self._cache = {}
+        self.nominatim_blocked_until = 0
     
     def _clean_address_noise(self, address: str) -> str:
         """
@@ -69,7 +75,7 @@ class Geocoder:
     def geocode_address(self, address: str) -> Optional[Tuple[float, float]]:
         """
         Convert address to (latitude, longitude) coordinates.
-        Orchestrates Google -> Nominatim -> Photon fallbacks.
+        Fallback chain: Google -> Mapbox -> Nominatim -> Photon.
         """
         if not address or not address.strip():
             return None
@@ -95,7 +101,14 @@ class Geocoder:
             except Exception as e:
                 print(f"Google Maps geocoding error: {e}")
         
-        # 3. Try Nominatim (conditional on block)
+        # 3. Try Mapbox if available (New)
+        if self.mapbox:
+            coords = self._geocode_mapbox_robust(smart_cleaned)
+            if coords:
+                self._cache[smart_cleaned] = coords
+                return coords
+
+        # 4. Try Nominatim (conditional on block)
         if time.time() > self.nominatim_blocked_until:
             coords = self._geocode_nominatim_robust(smart_cleaned)
             if coords:
@@ -104,12 +117,38 @@ class Geocoder:
         else:
             print(f"   [NOTICE] Skipping Nominatim (Temporary Rate Limit Block)")
             
-        # 4. Final Fallback: Photon (Often works when Nominatim is blocked)
+        # 5. Final Fallback: Photon
         coords = self._geocode_photon_robust(smart_cleaned)
         if coords:
             self._cache[smart_cleaned] = coords
             
         return coords
+
+    def _geocode_mapbox_robust(self, address: str) -> Optional[Tuple[float, float]]:
+        """
+        Robust Mapbox geocoding with iterative peeling.
+        """
+        parts = [p.strip() for p in address.split(',')]
+        max_peeling = min(len(parts) - 1, 3) 
+        
+        for i in range(max_peeling + 1):
+            current_search = ", ".join(parts[i:]).strip()
+            if not current_search or (len(current_search.split()) < 2 and i > 0):
+                continue
+                
+            try:
+                # Mapbox is fast and generous
+                time.sleep(0.1)
+                location = self.mapbox.geocode(current_search)
+                if location:
+                    coords = (location.latitude, location.longitude)
+                    if i > 0:
+                        print(f"   [NOTICE] Resolved via Mapbox fallback: '{current_search}'")
+                    return coords
+            except Exception as e:
+                print(f"Warning: Mapbox geocoding error for '{current_search}': {e}")
+                continue
+        return None
 
     def _geocode_nominatim_robust(self, address: str) -> Optional[Tuple[float, float]]:
         """
@@ -139,7 +178,7 @@ class Geocoder:
                 if "429" in str(e):
                     print(f"   [ALERT] Nominatim Rate Limit (429)! Blocking for 1 min.")
                     self.nominatim_blocked_until = time.time() + 60
-                    return None # Stop peeling if blocked
+                    return None 
                 print(f"Warning: Nominatim error for '{current_search}': {e}")
                 continue
             except Exception as e:
@@ -152,7 +191,7 @@ class Geocoder:
         Fallback geocoding using Photon.
         """
         parts = [p.strip() for p in address.split(',')]
-        max_peeling = min(len(parts) - 1, 2) # Shallow peeling for Photon
+        max_peeling = min(len(parts) - 1, 2) 
         
         for i in range(max_peeling + 1):
             current_search = ", ".join(parts[i:]).strip()
@@ -160,7 +199,6 @@ class Geocoder:
                 continue
                 
             try:
-                # Photon is generally more lenient but let's be polite
                 time.sleep(0.5)
                 location = self.photon.geocode(current_search)
                 if location:
