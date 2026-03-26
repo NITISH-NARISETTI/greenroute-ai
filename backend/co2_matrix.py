@@ -15,38 +15,34 @@ def build_co2_matrix(
 ) -> np.ndarray:
     """
     Build CO₂ cost matrix for all pairs of locations
-    
-    Args:
-        coordinates: List of (latitude, longitude) tuples
-        vehicle_type: Type of vehicle ('car', 'van', 'truck', 'bike')
-        cargo_weight: Cargo weight in kilograms
-        avg_speed: Average speed in km/h
-        
-    Returns:
-        NxN numpy array where entry [i][j] is CO₂ cost from location i to j
     """
     n = len(coordinates)
-    
-    # Step 1: Calculate distance matrix
     distance_matrix = calculate_distance_matrix(coordinates)
-    
-    # Step 2: Get CO₂ predictor
     predictor = get_co2_predictor()
     
-    # Step 3: Build CO₂ matrix
-    co2_matrix = np.zeros((n, n))
+    # Flatten the NxN into a list for batch processing
+    # We only care about i != j
+    to_predict = []
+    indices = []
     
     for i in range(n):
         for j in range(n):
             if i != j:
-                distance = distance_matrix[i][j]
-                co2_emission = predictor.predict_co2(
-                    distance=distance,
-                    vehicle_type=vehicle_type,
-                    cargo_weight=cargo_weight,
-                    avg_speed=avg_speed
-                )
-                co2_matrix[i][j] = co2_emission
+                to_predict.append(distance_matrix[i][j])
+                indices.append((i, j))
+    
+    # Single batch prediction for EVERYTHING
+    results = predictor.predict_batch(
+        distances=to_predict,
+        vehicle_type=vehicle_type,
+        cargo_weight=cargo_weight,
+        avg_speed=avg_speed
+    )
+    
+    # Reconstruct matrix
+    co2_matrix = np.zeros((n, n))
+    for idx, (i, j) in enumerate(indices):
+        co2_matrix[i][j] = results[idx]
     
     return co2_matrix
 

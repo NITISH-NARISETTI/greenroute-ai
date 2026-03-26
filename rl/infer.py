@@ -70,6 +70,16 @@ def optimize_route_with_rl(
     
     # Run episode with trained policy
     obs, info = env.reset()
+    
+    # SHAPE VALIDATION: Ensure model can handle this number of locations
+    # (FastAPI/Render fix: prevent 18s timeouts on shape mismatch)
+    expected_shape = model.observation_space.shape
+    if obs.shape != expected_shape:
+        raise ValueError(
+            f"Observation shape {obs.shape} does not match model's expected shape {expected_shape}. "
+            f"This model was likely trained for {expected_shape[0]-1} locations."
+        )
+
     done = False
     max_steps = len(co2_matrix) * 2  # Safety limit
     steps = 0
