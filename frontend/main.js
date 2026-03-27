@@ -92,8 +92,8 @@ async function handleFormSubmit(event) {
         console.log('📤 Sending optimization request...', formData);
 
         // Call API
-        // Use relative URL for mono-service deployment
-        const url = '/optimize';
+        // Use explicitly constructed URL for the optimization endpoint
+        const url = `${API_BASE_URL}/optimize`;
         console.log(`🚀 Sending request to: ${url}`, formData);
 
         const response = await fetch(url, {
